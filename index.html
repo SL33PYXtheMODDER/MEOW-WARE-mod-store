@@ -136,6 +136,7 @@
     border-radius: 8px; padding: 10px 12px;
   }
   .save { justify-self: start; background: var(--yes); color: #fff; border: 0; border-radius: 8px; padding: 10px 20px; font-weight: 700; cursor: pointer; }
+  .save:disabled { opacity: .6; cursor: default; }
   .err { color: var(--no); margin: 0; min-height: 1.2em; }
   .intro { color: var(--muted); margin: 0 0 14px; }
 
@@ -211,54 +212,15 @@
 </div>
 
 <script>
-function sha256(ascii) {
-  function rightRotate(value, amount) { return (value >>> amount) | (value << (32 - amount)); }
-  var mathPow = Math.pow, maxWord = mathPow(2, 32), i, j, result = '';
-  var words = [], asciiBitLength = ascii.length * 8;
-  var hash = sha256.h = sha256.h || [], k = sha256.k = sha256.k || [], primeCounter = k.length;
-  var isComposite = {};
-  for (var candidate = 2; primeCounter < 64; candidate++) {
-    if (!isComposite[candidate]) {
-      for (i = 0; i < 313; i += candidate) isComposite[i] = candidate;
-      hash[primeCounter] = (mathPow(candidate, .5) * maxWord) | 0;
-      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
-    }
-  }
-  ascii += '\x80';
-  while (ascii.length % 64 - 56) ascii += '\x00';
-  for (i = 0; i < ascii.length; i++) {
-    j = ascii.charCodeAt(i);
-    if (j >> 8) return '';
-    words[i >> 2] |= j << ((3 - i) % 4) * 8;
-  }
-  words[words.length] = ((asciiBitLength / maxWord) | 0);
-  words[words.length] = asciiBitLength;
-  for (j = 0; j < words.length;) {
-    var w = words.slice(j, j += 16), oldHash = hash;
-    hash = hash.slice(0, 8);
-    for (i = 0; i < 64; i++) {
-      var w15 = w[i - 15], w2 = w[i - 2], a = hash[0], e = hash[4];
-      var temp1 = hash[7] + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) + ((e & hash[5]) ^ ((~e) & hash[6])) + k[i] +
-        (w[i] = (i < 16) ? w[i] : (w[i - 16] + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) | 0);
-      var temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
-      hash = [(temp1 + temp2) | 0].concat(hash);
-      hash[4] = (hash[4] + temp1) | 0;
-    }
-    for (i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;
-  }
-  for (i = 0; i < 8; i++) for (j = 3; j + 1; j--) {
-    var b = (hash[i] >> (j * 8)) & 255;
-    result += (b < 16 ? 0 : '') + b.toString(16);
-  }
-  return result;
-}
+  // Paste your Supabase Project URL and public (anon / publishable) key between the quotes.
+  const SUPABASE_URL = "https://ejkqwpojnotbwlkrisvm.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_8LMn1kK2oCuCA2GGnhXcrQ_JYTazRxC";
+  const API = SUPABASE_URL.replace(/\/+$/, "");
+  const HEADERS = { "apikey": SUPABASE_KEY, "Content-Type": "application/json" };
 
+  let loadFailed = false;
 
-  const PASSWORD_HASH = "709e0a383ecf7ce7a261a61c51b2c4770d28c392aece4fc65953fcc2ad53759e";
-
-  // Edit this array to manage the store. Each mod has:
-  // WORKING? (true/false), DESCRIPTION, DOWNLOAD LINK
-  // Example: { name: "My Mod", working: true, description: "What it does", link: "https://..." }
+  // Mods are loaded from your Supabase database (see SUPABASE_URL above).
   const mods = [];
 
   // Edit this array to change the credits tab.
@@ -302,9 +264,11 @@ function sha256(ascii) {
     if (!shown.length) {
       const e = document.createElement("p");
       e.className = "empty";
-      e.textContent = mods.length
-        ? "No mods match. Clear the search or pick another tab."
-        : "No mods yet. Add one in the upload tab.";
+      e.textContent = loadFailed
+        ? "Couldn't load the mods. Refresh the page to try again."
+        : mods.length
+          ? "No mods match. Clear the search or pick another tab."
+          : "No mods yet. Add one in the upload tab.";
       feed.appendChild(e);
       return;
     }
@@ -390,25 +354,64 @@ function sha256(ascii) {
   }));
   $("q").addEventListener("input", render);
 
-  $("add").addEventListener("submit", e => {
+  async function loadMods() {
+    if (!API || !SUPABASE_KEY) return;
+    try {
+      const r = await fetch(API + "/rest/v1/mods?select=name,working,description,link&order=created_at.desc", { headers: HEADERS });
+      if (!r.ok) throw new Error("bad response");
+      const data = await r.json();
+      mods.length = 0;
+      data.forEach(m => mods.push({
+        name: String(m.name), working: !!m.working,
+        description: String(m.description), link: String(m.link)
+      }));
+      loadFailed = false;
+    } catch (e) { loadFailed = true; }
+    render();
+  }
+
+  $("add").addEventListener("submit", async e => {
     e.preventDefault();
     const err = $("err");
-    if (sha256("meowware|" + $("pw").value) !== PASSWORD_HASH) { err.textContent = "Wrong password. Mod not added."; return; }
+    const btn = e.target.querySelector(".save");
+    if (!API || !SUPABASE_KEY) { err.textContent = "Uploads aren't set up yet."; return; }
     const link = $("l").value.trim();
     if (!safeUrl(link)) { err.textContent = "Enter a link that starts with http:// or https://."; return; }
     err.textContent = "";
-    mods.unshift({
-      name: $("n").value.trim(),
-      working: $("w").value === "true",
-      description: $("d").value.trim(),
-      link
-    });
-    e.target.reset();
-    current = "all";
-    render();
+    btn.disabled = true;
+    try {
+      const r = await fetch(API + "/rest/v1/rpc/add_mod", {
+        method: "POST",
+        headers: HEADERS,
+        body: JSON.stringify({
+          p_password: $("pw").value,
+          p_name: $("n").value.trim(),
+          p_working: $("w").value === "true",
+          p_description: $("d").value.trim(),
+          p_link: link
+        })
+      });
+      if (!r.ok) {
+        let msg = "";
+        try { msg = (await r.json()).message || ""; } catch (x) {}
+        err.textContent = msg.includes("wrong password")
+          ? "Wrong password. Mod not added."
+          : "Couldn't upload. Try again.";
+        return;
+      }
+      e.target.reset();
+      await loadMods();
+      current = "all";
+      render();
+    } catch (x) {
+      err.textContent = "Couldn't reach the server. Try again.";
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   render();
+  loadMods();
 </script>
 </body>
 </html>
