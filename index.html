@@ -38,11 +38,19 @@
   .app > * { min-height: 0; }
 
   /* server rail */
-  .rail { background: var(--rail); display: flex; flex-direction: column; align-items: center; padding: 12px 0; }
+  .rail {
+    background-color: var(--rail);
+    background-image: linear-gradient(180deg, #f6b3d0, #ff9cc6, #ffd0e3, #ff9cc6, #f6b3d0);
+    background-size: 100% 300%; animation: bgflowY 14s ease-in-out infinite;
+    display: flex; flex-direction: column; align-items: center; padding: 12px 0; }
   .rail img { width: 48px; height: 48px; border-radius: 16px; display: block; }
 
   /* channel sidebar */
-  .side { background: var(--side); display: flex; flex-direction: column; border-right: 1px solid var(--line); overflow-y: auto; }
+  .side {
+    background-color: var(--side);
+    background-image: linear-gradient(180deg, #ffe3ee, #ffc4dc, #fff0f6, #ffc4dc, #ffe3ee);
+    background-size: 100% 300%; animation: bgflowY 14s ease-in-out infinite;
+    display: flex; flex-direction: column; border-right: 1px solid var(--line); overflow-y: auto; }
   .server {
     display: flex; align-items: center; gap: 10px;
     height: 48px; padding: 0 16px; border-bottom: 1px solid var(--line); flex: none;
@@ -85,10 +93,11 @@
   /* main */
   .main {
     display: flex; flex-direction: column; min-width: 0;
-    background-image: linear-gradient(120deg, #ffffff, #ffeef5, #ffffff, #ffe6f0, #ffffff);
+    background-image: linear-gradient(120deg, #ffffff, #ffd6e8, #ffffff, #ffc2dc, #ffffff);
     background-size: 300% 300%;
     animation: bgflow 16s ease-in-out infinite;
   }
+  @keyframes bgflowY { 0%, 100% { background-position: 50% 0%; } 50% { background-position: 50% 100%; } }
   @keyframes bgflow { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
   .top {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -127,6 +136,20 @@
     text-decoration: none; font-weight: 700; border-radius: 8px; padding: 8px 16px;
   }
   .dl[aria-disabled="true"] { background: var(--line); color: var(--muted); pointer-events: none; }
+  .star {
+    flex: none; background: transparent; border: 0; border-radius: 8px;
+    padding: 2px 6px; font-size: 1.6rem; line-height: 1; cursor: pointer; color: var(--muted);
+  }
+  .star:hover { color: var(--accent); }
+  .star[aria-pressed="true"] { color: var(--accent); }
+  .rating { font-size: .85rem; font-weight: 700; color: #b8336a; }
+  .reviews { margin-top: 10px; display: grid; gap: 8px; }
+  .review { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .review .rh { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+  .review .stars { color: #b8336a; font-weight: 700; }
+  .review .when { color: var(--muted); font-size: .8rem; }
+  .review p { margin: 4px 0 0; color: var(--text); }
+  .rform { padding: 0; border: 0; background: transparent; margin-top: 10px; gap: 8px; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .alt {
     background: #fff; color: var(--text); border: 1px solid var(--line);
@@ -161,7 +184,7 @@
     .ch { width: auto; white-space: nowrap; flex: none; }
     #q { width: 140px; }
   }
-  @media (prefers-reduced-motion: reduce) { .server-name, .main, .join { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .server-name, .main, .join, .side, .rail { animation: none; } }
 </style>
 </head>
 <body>
@@ -176,12 +199,13 @@
     </div>
     <nav aria-label="Channels">
       <div class="group">Mods</div>
-      <button class="ch" data-ch="all">all mods<span class="count" id="c-all"></span></button>
-      <button class="ch" data-ch="working">working<span class="count" id="c-working"></span></button>
-      <button class="ch" data-ch="broken">not working<span class="count" id="c-broken"></span></button>
+      <button class="ch" data-ch="all">All mods<span class="count" id="c-all"></span></button>
+      <button class="ch" data-ch="working">Working<span class="count" id="c-working"></span></button>
+      <button class="ch" data-ch="broken">Not working<span class="count" id="c-broken"></span></button>
+      <button class="ch" data-ch="favorites">Favorites<span class="count" id="c-favorites"></span></button>
       <div class="group">More</div>
-      <button class="ch" data-ch="upload">upload</button>
-      <button class="ch" data-ch="credits">credits</button>
+      <button class="ch" data-ch="upload">Upload</button>
+      <button class="ch" data-ch="credits">Credits</button>
     </nav>
     <a class="join join-side" href="https://discord.gg/DH7PyEdnzB" target="_blank" rel="noopener noreferrer">Join Discord</a>
   </aside>
@@ -228,6 +252,16 @@
 
   let loadFailed = false;
   let sessionPw = "";
+  const reviews = [];
+  const openReviews = new Set();
+  const openForms = new Set();
+
+  // Favorites are saved in this browser only
+  let favs = new Set();
+  try { favs = new Set(JSON.parse(localStorage.getItem("meowware-favs") || "[]")); } catch (e) {}
+  function saveFavs() {
+    try { localStorage.setItem("meowware-favs", JSON.stringify([...favs])); } catch (e) {}
+  }
 
   // Mods are loaded from your Supabase database (see SUPABASE_URL above).
   const mods = [];
@@ -239,11 +273,12 @@
   ];
 
   const channels = {
-    all:     { label: "all mods",    type: "mods", filter: "all" },
-    working: { label: "working",     type: "mods", filter: "true" },
-    broken:  { label: "not working", type: "mods", filter: "false" },
-    upload:  { label: "upload",      type: "upload" },
-    credits: { label: "credits",     type: "credits" }
+    all:     { label: "All mods",    type: "mods", filter: "all" },
+    working: { label: "Working",     type: "mods", filter: "true" },
+    broken:  { label: "Not working", type: "mods", filter: "false" },
+    favorites: { label: "Favorites", type: "mods", filter: "fav" },
+    upload:  { label: "Upload",      type: "upload" },
+    credits: { label: "Credits",     type: "credits" }
   };
   let current = "all";
 
@@ -260,6 +295,20 @@
     a.textContent = (name.trim()[0] || "?").toUpperCase();
     a.setAttribute("aria-hidden", "true");
     return a;
+  }
+
+  async function postReview(modId, author, rating, comment) {
+    if (!API || !SUPABASE_KEY) return "Not set up yet.";
+    try {
+      const r = await fetch(API + "/rest/v1/rpc/add_review", {
+        method: "POST",
+        headers: HEADERS,
+        body: JSON.stringify({ p_mod_id: modId, p_author: author.trim(), p_rating: rating, p_comment: comment.trim() })
+      });
+      return r.ok ? "ok" : "Couldn't post your review. Try again.";
+    } catch (x) {
+      return "Couldn't reach the server.";
+    }
   }
 
   async function setWorking(id, working, password) {
@@ -284,7 +333,7 @@
     feed.textContent = "";
     const term = $("q").value.trim().toLowerCase();
     const shown = mods.filter(m =>
-      (filter === "all" || String(m.working) === filter) &&
+      (filter === "all" || (filter === "fav" ? favs.has(m.id) : String(m.working) === filter)) &&
       (m.name + " " + m.description).toLowerCase().includes(term));
 
     if (!shown.length) {
@@ -292,6 +341,8 @@
       e.className = "empty";
       e.textContent = loadFailed
         ? "Couldn't load the mods. Refresh the page to try again."
+        : filter === "fav" && !term
+          ? "No favorites yet. Tap the star on a mod to save it here."
         : mods.length
           ? "No mods match. Clear the search or pick another tab."
           : "No mods yet. Add one in the upload tab.";
@@ -361,7 +412,113 @@
         body.append(box);
       }
 
-      card.append(avatar(m.name), body);
+      if (m.id) {
+        const rs = reviews.filter(x => x.mod_id === m.id);
+        if (rs.length) {
+          const avg = rs.reduce((sum, x) => sum + x.rating, 0) / rs.length;
+          const rt = document.createElement("span");
+          rt.className = "rating";
+          rt.textContent = "\u2605 " + avg.toFixed(1) + " (" + rs.length + ")";
+          head.append(rt);
+        }
+
+        const row = document.createElement("div");
+        row.className = "actions"; row.style.marginTop = "8px";
+        const vr = document.createElement("button");
+        vr.type = "button"; vr.className = "alt";
+        vr.textContent = "View reviews (" + rs.length + ")";
+        const wr = document.createElement("button");
+        wr.type = "button"; wr.className = "alt";
+        wr.textContent = "Write a review";
+        row.append(vr, wr);
+
+        const list = document.createElement("div");
+        list.className = "reviews";
+        list.hidden = !openReviews.has(m.id);
+        if (!rs.length) {
+          const none = document.createElement("p");
+          none.textContent = "No reviews yet. Be the first to write one.";
+          list.appendChild(none);
+        }
+        rs.forEach(x => {
+          const item = document.createElement("div");
+          item.className = "review";
+          const rh = document.createElement("div"); rh.className = "rh";
+          const au = document.createElement("strong"); au.textContent = x.author;
+          const st = document.createElement("span"); st.className = "stars";
+          st.textContent = "\u2605".repeat(x.rating) + "\u2606".repeat(5 - x.rating);
+          const wh = document.createElement("span"); wh.className = "when";
+          const d = new Date(x.created_at);
+          wh.textContent = isNaN(d) ? "" : d.toLocaleDateString();
+          rh.append(au, st, wh);
+          const cm = document.createElement("p"); cm.textContent = x.comment;
+          item.append(rh, cm);
+          list.appendChild(item);
+        });
+
+        const form = document.createElement("form");
+        form.className = "rform";
+        form.hidden = !openForms.has(m.id);
+        const nm = document.createElement("input");
+        nm.type = "text"; nm.placeholder = "Your name"; nm.maxLength = 40; nm.required = true;
+        nm.setAttribute("aria-label", "Your name");
+        const rate = document.createElement("select");
+        rate.setAttribute("aria-label", "Rating");
+        [5, 4, 3, 2, 1].forEach(n => {
+          const o = document.createElement("option");
+          o.value = String(n);
+          o.textContent = "\u2605".repeat(n) + "\u2606".repeat(5 - n) + "  (" + n + ")";
+          rate.appendChild(o);
+        });
+        const cmt = document.createElement("textarea");
+        cmt.rows = 3; cmt.placeholder = "Your review"; cmt.maxLength = 500; cmt.required = true;
+        cmt.setAttribute("aria-label", "Your review");
+        const sb = document.createElement("button");
+        sb.type = "submit"; sb.className = "alt"; sb.textContent = "Post review";
+        const er = document.createElement("p");
+        er.className = "err"; er.setAttribute("role", "alert");
+        form.append(nm, rate, cmt, sb, er);
+
+        vr.addEventListener("click", () => {
+          if (openReviews.has(m.id)) openReviews.delete(m.id); else openReviews.add(m.id);
+          list.hidden = !openReviews.has(m.id);
+        });
+        wr.addEventListener("click", () => {
+          if (openForms.has(m.id)) openForms.delete(m.id); else openForms.add(m.id);
+          form.hidden = !openForms.has(m.id);
+          if (!form.hidden) nm.focus();
+        });
+        form.addEventListener("submit", async ev => {
+          ev.preventDefault();
+          er.textContent = "";
+          sb.disabled = true;
+          const res = await postReview(m.id, nm.value, Number(rate.value), cmt.value);
+          sb.disabled = false;
+          if (res === "ok") {
+            openReviews.add(m.id);
+            openForms.delete(m.id);
+            await loadMods();
+          } else {
+            er.textContent = res;
+          }
+        });
+
+        body.append(row, list, form);
+      }
+
+      const star = document.createElement("button");
+      star.type = "button"; star.className = "star";
+      const isFav = favs.has(m.id);
+      star.textContent = isFav ? "\u2605" : "\u2606";
+      star.setAttribute("aria-pressed", String(isFav));
+      star.setAttribute("aria-label", "Favorite " + m.name);
+      star.addEventListener("click", () => {
+        if (favs.has(m.id)) favs.delete(m.id); else favs.add(m.id);
+        saveFavs();
+        render();
+      });
+
+      card.append(avatar(m.name), body, star);
       feed.appendChild(card);
     });
   }
@@ -388,6 +545,7 @@
     $("c-all").textContent = mods.length || "";
     $("c-working").textContent = mods.filter(m => m.working).length || "";
     $("c-broken").textContent = mods.filter(m => !m.working).length || "";
+    $("c-favorites").textContent = mods.filter(m => favs.has(m.id)).length || "";
   }
 
   function render() {
@@ -430,6 +588,17 @@
         description: String(m.description), link: String(m.link)
       }));
       loadFailed = false;
+      try {
+        const rr = await fetch(API + "/rest/v1/reviews?select=mod_id,author,rating,comment,created_at&order=created_at.desc", { headers: HEADERS });
+        if (rr.ok) {
+          const rd = await rr.json();
+          reviews.length = 0;
+          rd.forEach(x => reviews.push({
+            mod_id: String(x.mod_id), author: String(x.author),
+            rating: Number(x.rating), comment: String(x.comment), created_at: x.created_at
+          }));
+        }
+      } catch (e) {}
     } catch (e) { loadFailed = true; }
     render();
   }
