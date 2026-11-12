@@ -67,7 +67,15 @@
   }
   @keyframes flow { to { background-position: -300% 0; } }
   nav { padding: 12px 8px; }
-  .group { margin: 12px 8px 4px; font-size: .8rem; font-weight: 700; color: var(--muted); }
+  .group {
+    margin: 12px 8px 4px; font-size: .95rem; font-weight: 700; width: fit-content;
+    background: linear-gradient(90deg, #fff7fb, #ffb3d1, #f2679f, #ffb3d1, #fff7fb, #ffb3d1, #f2679f);
+    background-size: 300% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    filter: drop-shadow(0 0 2px rgba(242,103,159,.55)) drop-shadow(0 2px 4px rgba(242,103,159,.3));
+    animation: flow 6s linear infinite;
+  }
   .group:first-child { margin-top: 0; }
   .ch {
     display: flex; align-items: center; gap: 8px; width: 100%;
@@ -204,7 +212,7 @@
     .ch { width: auto; white-space: nowrap; flex: none; }
     #q { width: 140px; }
   }
-  @media (prefers-reduced-motion: reduce) { .server-name, .main, .join, .side, .rail, .paws svg, .corner-paw.spin { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .server-name, .group, .main, .join, .side, .rail, .paws svg, .corner-paw.spin { animation: none; } }
 </style>
 </head>
 <body>
