@@ -151,10 +151,11 @@
   .review p { margin: 4px 0 0; color: var(--text); }
   .rform { padding: 0; border: 0; background: transparent; margin-top: 10px; gap: 8px; }
   .small { padding: 4px 10px; font-size: .85rem; }
-  .paws { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; padding: 0 4px; }
-  .paws svg { width: 20px; height: 20px; fill: var(--accent); opacity: .85; }
+  .paws { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; padding: 0 4px; }
+  .paws svg { width: 28px; height: 28px; opacity: .85; }
+  .paws svg ellipse, .paws svg circle { fill: url(#pawGrad); stroke: #f2679f; stroke-width: 0.5; stroke-linejoin: round; }
   .paws svg:nth-child(odd) { transform: rotate(-18deg); }
-  .paws svg:nth-child(even) { transform: translateY(-6px) rotate(18deg); }
+  .paws svg:nth-child(even) { transform: translateY(-8px) rotate(18deg); }
   .paws svg { animation: pawwalk 2.4s ease-in-out infinite; }
   .paws svg:nth-child(2) { animation-delay: .4s; }
   .paws svg:nth-child(3) { animation-delay: .8s; }
@@ -223,6 +224,7 @@
       <button class="ch" data-ch="broken">Not working<span class="count" id="c-broken"></span></button>
       <button class="ch" data-ch="favorites">Favorites<span class="count" id="c-favorites"></span></button>
       <div class="group">More</div>
+      <button class="ch" data-ch="site">MEOW•WARE reviews<span class="count" id="c-site"></span></button>
       <button class="ch" data-ch="upload">Upload</button>
       <button class="ch" data-ch="credits">Credits</button>
     </nav>
@@ -251,6 +253,19 @@
             <p class="err" id="err" role="alert"></p>
             <button class="save" type="submit">Add mod</button>
           </form>
+        </section>
+
+        <section id="v-site" hidden>
+          <p class="intro">Tell everyone about your experience with MEOW•WARE.</p>
+          <p class="intro" id="siteSummary"></p>
+          <form id="siteForm">
+            <label>Your name <input type="text" id="sn" maxlength="40" required></label>
+            <label>Rating <select id="sr"></select></label>
+            <label>Your review <textarea id="sc" rows="4" maxlength="500" required></textarea></label>
+            <p class="err" id="serr" role="alert"></p>
+            <button class="save" type="submit">Post review</button>
+          </form>
+          <div class="feed" id="siteList" style="margin-top:16px"></div>
         </section>
 
         <section id="v-credits" hidden>
@@ -288,6 +303,7 @@
   let loadFailed = false;
   let sessionPw = "";
   const reviews = [];
+  const siteReviews = [];
   const openReviews = new Set();
   const openForms = new Set();
 
@@ -344,6 +360,7 @@
     working: { label: "Working",     type: "mods", filter: "true" },
     broken:  { label: "Not working", type: "mods", filter: "false" },
     favorites: { label: "Favorites", type: "mods", filter: "fav" },
+    site:    { label: "MEOW•WARE reviews", type: "site" },
     upload:  { label: "Upload",      type: "upload" },
     credits: { label: "Credits",     type: "credits" }
   };
@@ -387,10 +404,30 @@
     }
   }
 
-  async function editReview(id, rating, comment) {
+  async function postSiteReview(author, rating, comment) {
+    if (!API || !SUPABASE_KEY) return "Not set up yet.";
+    const token = newToken();
+    try {
+      const r = await fetch(API + "/rest/v1/rpc/add_site_review", {
+        method: "POST",
+        headers: HEADERS,
+        body: JSON.stringify({ p_author: author.trim(), p_rating: rating, p_comment: comment.trim(), p_token: token })
+      });
+      if (!r.ok) return "Couldn't post your review. Try again.";
+      try {
+        const id = await r.json();
+        if (typeof id === "string") { reviewTokens[id] = token; saveTokens(); }
+      } catch (x) {}
+      return "ok";
+    } catch (x) {
+      return "Couldn't reach the server.";
+    }
+  }
+
+  async function editReview(id, rating, comment, fn = "edit_review") {
     if (!API || !SUPABASE_KEY) return "Not set up yet.";
     try {
-      const r = await fetch(API + "/rest/v1/rpc/edit_review", {
+      const r = await fetch(API + "/rest/v1/rpc/" + fn, {
         method: "POST",
         headers: HEADERS,
         body: JSON.stringify({ p_review_id: id, p_token: reviewTokens[id] || "", p_rating: rating, p_comment: comment.trim() })
@@ -416,6 +453,55 @@
     } catch (x) {
       return "Couldn't reach the server.";
     }
+  }
+
+  function buildReviewItem(x, edit) {
+          const item = document.createElement("div");
+          item.className = "review";
+          const rh = document.createElement("div"); rh.className = "rh";
+          const au = document.createElement("strong"); au.textContent = x.author;
+          const st = document.createElement("span"); st.className = "stars";
+          st.textContent = "\u2605".repeat(x.rating) + "\u2606".repeat(5 - x.rating);
+          const wh = document.createElement("span"); wh.className = "when";
+          const d = new Date(x.created_at);
+          wh.textContent = isNaN(d) ? "" : d.toLocaleDateString();
+          rh.append(au, st, wh);
+          const cm = document.createElement("p"); cm.textContent = x.comment;
+          item.append(rh, cm);
+
+          if (x.id && reviewTokens[x.id]) {
+            const eb = document.createElement("button");
+            eb.type = "button"; eb.className = "alt small"; eb.textContent = "Edit";
+            rh.append(eb);
+
+            const ef = document.createElement("form");
+            ef.className = "rform"; ef.hidden = true;
+            const esel = makeRatingSelect(x.rating);
+            const eta = document.createElement("textarea");
+            eta.rows = 3; eta.maxLength = 500; eta.required = true; eta.value = x.comment;
+            eta.setAttribute("aria-label", "Edit your review");
+            const esave = document.createElement("button");
+            esave.type = "submit"; esave.className = "alt"; esave.textContent = "Save changes";
+            const ecancel = document.createElement("button");
+            ecancel.type = "button"; ecancel.className = "alt"; ecancel.textContent = "Cancel";
+            const eerr = document.createElement("p");
+            eerr.className = "err"; eerr.setAttribute("role", "alert");
+            ef.append(esel, eta, esave, ecancel, eerr);
+            item.append(ef);
+
+            eb.addEventListener("click", () => { ef.hidden = !ef.hidden; if (!ef.hidden) eta.focus(); });
+            ecancel.addEventListener("click", () => { ef.hidden = true; });
+            ef.addEventListener("submit", async ev => {
+              ev.preventDefault();
+              eerr.textContent = "";
+              esave.disabled = true;
+              const res = await edit(x.id, Number(esel.value), eta.value);
+              esave.disabled = false;
+              if (res === "ok") await loadMods();
+              else eerr.textContent = res;
+            });
+          }
+    return item;
   }
 
   function renderMods(filter) {
@@ -532,54 +618,7 @@
           none.textContent = "No reviews yet. Be the first to write one.";
           list.appendChild(none);
         }
-        rs.forEach(x => {
-          const item = document.createElement("div");
-          item.className = "review";
-          const rh = document.createElement("div"); rh.className = "rh";
-          const au = document.createElement("strong"); au.textContent = x.author;
-          const st = document.createElement("span"); st.className = "stars";
-          st.textContent = "\u2605".repeat(x.rating) + "\u2606".repeat(5 - x.rating);
-          const wh = document.createElement("span"); wh.className = "when";
-          const d = new Date(x.created_at);
-          wh.textContent = isNaN(d) ? "" : d.toLocaleDateString();
-          rh.append(au, st, wh);
-          const cm = document.createElement("p"); cm.textContent = x.comment;
-          item.append(rh, cm);
-
-          if (x.id && reviewTokens[x.id]) {
-            const eb = document.createElement("button");
-            eb.type = "button"; eb.className = "alt small"; eb.textContent = "Edit";
-            rh.append(eb);
-
-            const ef = document.createElement("form");
-            ef.className = "rform"; ef.hidden = true;
-            const esel = makeRatingSelect(x.rating);
-            const eta = document.createElement("textarea");
-            eta.rows = 3; eta.maxLength = 500; eta.required = true; eta.value = x.comment;
-            eta.setAttribute("aria-label", "Edit your review");
-            const esave = document.createElement("button");
-            esave.type = "submit"; esave.className = "alt"; esave.textContent = "Save changes";
-            const ecancel = document.createElement("button");
-            ecancel.type = "button"; ecancel.className = "alt"; ecancel.textContent = "Cancel";
-            const eerr = document.createElement("p");
-            eerr.className = "err"; eerr.setAttribute("role", "alert");
-            ef.append(esel, eta, esave, ecancel, eerr);
-            item.append(ef);
-
-            eb.addEventListener("click", () => { ef.hidden = !ef.hidden; if (!ef.hidden) eta.focus(); });
-            ecancel.addEventListener("click", () => { ef.hidden = true; });
-            ef.addEventListener("submit", async ev => {
-              ev.preventDefault();
-              eerr.textContent = "";
-              esave.disabled = true;
-              const res = await editReview(x.id, Number(esel.value), eta.value);
-              esave.disabled = false;
-              if (res === "ok") await loadMods();
-              else eerr.textContent = res;
-            });
-          }
-          list.appendChild(item);
-        });
+        rs.forEach(x => list.appendChild(buildReviewItem(x, editReview)));
 
         const form = document.createElement("form");
         form.className = "rform";
@@ -641,6 +680,20 @@
     });
   }
 
+  function renderSite() {
+    const n = siteReviews.length;
+    if (n) {
+      const avg = siteReviews.reduce((sum, x) => sum + x.rating, 0) / n;
+      $("siteSummary").textContent = "\u2605 " + avg.toFixed(1) + " average from " + n + (n === 1 ? " review" : " reviews");
+    } else {
+      $("siteSummary").textContent = "No reviews yet. Be the first to share your experience.";
+    }
+    const box = $("siteList");
+    box.textContent = "";
+    const edit = (id, rating, comment) => editReview(id, rating, comment, "edit_site_review");
+    siteReviews.forEach(x => box.appendChild(buildReviewItem(x, edit)));
+  }
+
   function renderCredits() {
     const box = $("credits");
     box.textContent = "";
@@ -663,6 +716,7 @@
     $("c-all").textContent = mods.length || "";
     $("c-working").textContent = mods.filter(m => m.working).length || "";
     $("c-broken").textContent = mods.filter(m => !m.working).length || "";
+    $("c-site").textContent = siteReviews.length || "";
     $("c-favorites").textContent = mods.filter(m => favs.has(m.id)).length || "";
   }
 
@@ -679,11 +733,13 @@
 
     $("v-mods").hidden = c.type !== "mods";
     $("v-upload").hidden = c.type !== "upload";
+    $("v-site").hidden = c.type !== "site";
     $("v-credits").hidden = c.type !== "credits";
     $("q").hidden = c.type !== "mods";
 
     updateCounts();
     if (c.type === "mods") renderMods(c.filter);
+    if (c.type === "site") renderSite();
     if (c.type === "credits") renderCredits();
   }
 
@@ -713,6 +769,17 @@
           reviews.length = 0;
           rd.forEach(x => reviews.push({
             id: String(x.id), mod_id: String(x.mod_id), author: String(x.author),
+            rating: Number(x.rating), comment: String(x.comment), created_at: x.created_at
+          }));
+        }
+      } catch (e) {}
+      try {
+        const sr = await fetch(API + "/rest/v1/site_reviews?select=id,author,rating,comment,created_at&order=created_at.desc", { headers: HEADERS });
+        if (sr.ok) {
+          const sd = await sr.json();
+          siteReviews.length = 0;
+          sd.forEach(x => siteReviews.push({
+            id: String(x.id), author: String(x.author),
             rating: Number(x.rating), comment: String(x.comment), created_at: x.created_at
           }));
         }
@@ -759,6 +826,20 @@
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // Site review form
+  Array.from(makeRatingSelect(5).options).forEach(o => $("sr").appendChild(o));
+  $("siteForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const err = $("serr");
+    const btn = e.target.querySelector(".save");
+    err.textContent = "";
+    btn.disabled = true;
+    const res = await postSiteReview($("sn").value, Number($("sr").value), $("sc").value);
+    btn.disabled = false;
+    if (res === "ok") { e.target.reset(); await loadMods(); }
+    else err.textContent = res;
   });
 
   // Spin the corner paw every time a button is clicked
