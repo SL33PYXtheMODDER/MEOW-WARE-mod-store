@@ -171,13 +171,27 @@
   @keyframes pawwalk { 0%, 100% { opacity: .2; } 35% { opacity: 1; } 70% { opacity: .2; } }
   .corner-paw {
     position: fixed; right: 16px; bottom: 16px; width: 56px; height: 56px;
-    pointer-events: none; z-index: 50;
+    pointer-events: auto; z-index: 50; user-select: none; -webkit-tap-highlight-color: transparent;
     filter: drop-shadow(0 2px 5px rgba(242,103,159,.55));
   }
   .corner-paw svg { width: 100%; height: 100%; display: block; }
   .corner-paw svg ellipse, .corner-paw svg circle { fill: url(#pawGrad); stroke: #fff; stroke-width: 0.6; stroke-linejoin: round; }
   .corner-paw.spin { animation: pawspin .7s ease-in-out; }
   @keyframes pawspin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .overlay {
+    position: fixed; inset: 0; z-index: 100; display: grid; place-items: center;
+    padding: 16px; background: rgba(74,35,53,.45);
+  }
+  .modal {
+    background: #fff; border: 1px solid var(--line); border-radius: 12px;
+    width: min(640px, 100%); max-height: 90vh; max-height: 90dvh; overflow-y: auto; padding: 16px;
+  }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .stabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .alt[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .danger { color: var(--no); border-color: var(--no); }
+  .srow { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+  .srow p { margin: 0; overflow-wrap: anywhere; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .alt {
     background: #fff; color: var(--text); border: 1px solid var(--line);
@@ -283,6 +297,16 @@
       </div>
     </div>
   </main>
+</div>
+
+<div class="overlay" id="staffOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="staffTitle">
+    <div class="modal-head">
+      <h2 class="server-name" id="staffTitle">Staff menu</h2>
+      <button type="button" class="alt small" id="staffClose">Close</button>
+    </div>
+    <div id="staffBody"></div>
+  </div>
 </div>
 
 <div class="corner-paw" id="cornerPaw" aria-hidden="true">
@@ -852,12 +876,217 @@
 
   // Spin the corner paw every time a button is clicked
   const cornerPaw = $("cornerPaw");
-  document.addEventListener("click", e => {
-    if (!e.target.closest("button, .dl, .join")) return;
+  function spinPaw() {
     cornerPaw.classList.remove("spin");
     void cornerPaw.offsetWidth;
     cornerPaw.classList.add("spin");
+  }
+  document.addEventListener("click", e => {
+    if (e.target.closest("button, .dl, .join")) spinPaw();
   });
+
+  // ---- Staff menu: click the corner paw 10 times ----
+  let pawClicks = 0, pawTimer = null;
+  cornerPaw.addEventListener("click", () => {
+    spinPaw();
+    pawClicks++;
+    clearTimeout(pawTimer);
+    pawTimer = setTimeout(() => { pawClicks = 0; }, 2500);
+    if (pawClicks >= 10) { pawClicks = 0; openStaff(); }
+  });
+
+  let staffPw = "";
+  let staffTab = "mods";
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  async function rpc(name, body) {
+    try {
+      const r = await fetch(API + "/rest/v1/rpc/" + name, {
+        method: "POST", headers: HEADERS, body: JSON.stringify(body)
+      });
+      let data = null;
+      try { data = await r.json(); } catch (x) {}
+      return { ok: r.ok, status: r.status, data };
+    } catch (x) {
+      return { ok: false, status: 0, data: null };
+    }
+  }
+
+  function staffError(r) {
+    if (r.status === 0) return "Couldn't reach the server.";
+    if (r.status === 404) return "Staff functions aren't set up yet. Run the staff SQL in Supabase.";
+    if (r.data && String(r.data.message || "").includes("wrong password")) return "Wrong password.";
+    return "That didn't work. Try again.";
+  }
+
+  function openStaff() {
+    staffPw = "";
+    staffTab = "mods";
+    $("staffOverlay").hidden = false;
+    renderStaff();
+  }
+  function closeStaff() {
+    staffPw = "";
+    $("staffOverlay").hidden = true;
+    $("staffBody").textContent = "";
+  }
+  $("staffClose").addEventListener("click", closeStaff);
+  $("staffOverlay").addEventListener("click", e => { if (e.target === $("staffOverlay")) closeStaff(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("staffOverlay").hidden) closeStaff(); });
+
+  function renderStaffLogin(body) {
+    body.appendChild(el("p", "intro", "Enter the staff password to continue."));
+    const form = el("form");
+    const lab = el("label", "", "Password");
+    const pw = el("input");
+    pw.type = "password"; pw.autocomplete = "off"; pw.required = true;
+    lab.appendChild(pw);
+    const err = el("p", "err"); err.setAttribute("role", "alert");
+    const btn = el("button", "save", "Unlock"); btn.type = "submit";
+    form.append(lab, err, btn);
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+      err.textContent = "";
+      btn.disabled = true;
+      const r = await rpc("staff_check", { p_password: pw.value });
+      btn.disabled = false;
+      if (r.ok && r.data === true) { staffPw = pw.value; renderStaff(); }
+      else err.textContent = r.ok ? "Wrong password." : staffError(r);
+    });
+    body.appendChild(form);
+    pw.focus();
+  }
+
+  function renderStaff() {
+    const body = $("staffBody");
+    body.textContent = "";
+    if (!staffPw) { renderStaffLogin(body); return; }
+
+    const tabs = el("div", "stabs");
+    [["mods", "Mods"], ["reviews", "Mod reviews"], ["site", "Site reviews"]].forEach(t => {
+      const b = el("button", "alt", t[1]);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(staffTab === t[0]));
+      b.addEventListener("click", () => { staffTab = t[0]; renderStaff(); });
+      tabs.appendChild(b);
+    });
+    const lock = el("button", "alt danger", "Lock and close");
+    lock.type = "button";
+    lock.addEventListener("click", closeStaff);
+    tabs.appendChild(lock);
+    body.appendChild(tabs);
+
+    const msg = el("p", "err");
+    msg.setAttribute("role", "alert");
+    body.appendChild(msg);
+    const list = el("div", "feed");
+    body.appendChild(list);
+
+    if (staffTab === "mods") staffMods(list, msg);
+    else if (staffTab === "reviews") staffReviews(list, msg);
+    else staffSite(list, msg);
+  }
+
+  function stars(n) { return "\u2605".repeat(n) + "\u2606".repeat(5 - n); }
+
+  function staffMods(list, msg) {
+    if (!mods.length) { list.appendChild(el("p", "empty", "No mods yet.")); return; }
+    mods.forEach(m => {
+      const row = el("div", "srow");
+      const top = el("div", "head");
+      top.append(el("strong", "", m.name), el("span", "status" + (m.working ? " ok" : ""), "WORKING?: " + m.working));
+      const acts = el("div", "actions");
+      const eb = el("button", "alt small", "Edit"); eb.type = "button";
+      const db = el("button", "alt small danger", "Delete"); db.type = "button";
+      acts.append(eb, db);
+
+      const form = el("form", "rform");
+      form.hidden = true;
+      const nm = el("input"); nm.type = "text"; nm.maxLength = 100; nm.required = true; nm.value = m.name;
+      nm.setAttribute("aria-label", "Name");
+      const sel = el("select");
+      sel.setAttribute("aria-label", "Working");
+      ["true", "false"].forEach(v => {
+        const o = el("option", "", "WORKING?: " + v);
+        o.value = v;
+        if (String(m.working) === v) o.selected = true;
+        sel.appendChild(o);
+      });
+      const ds = el("textarea"); ds.rows = 3; ds.maxLength = 1000; ds.required = true; ds.value = m.description;
+      ds.setAttribute("aria-label", "Description");
+      const lk = el("input"); lk.type = "url"; lk.required = true; lk.value = m.link;
+      lk.setAttribute("aria-label", "Download link");
+      const save = el("button", "alt", "Save"); save.type = "submit";
+      const cancel = el("button", "alt", "Cancel"); cancel.type = "button";
+      form.append(nm, sel, ds, lk, save, cancel);
+
+      eb.addEventListener("click", () => { form.hidden = !form.hidden; });
+      cancel.addEventListener("click", () => { form.hidden = true; });
+      form.addEventListener("submit", async e => {
+        e.preventDefault();
+        msg.textContent = "";
+        if (!safeUrl(lk.value.trim())) { msg.textContent = "The link must start with http:// or https://."; return; }
+        save.disabled = true;
+        const r = await rpc("staff_edit_mod", {
+          p_password: staffPw, p_id: m.id, p_name: nm.value.trim(),
+          p_working: sel.value === "true", p_description: ds.value.trim(), p_link: lk.value.trim()
+        });
+        save.disabled = false;
+        if (r.ok) { await loadMods(); renderStaff(); }
+        else msg.textContent = staffError(r);
+      });
+      db.addEventListener("click", async () => {
+        if (!confirm('Delete "' + m.name + '" and all of its reviews?')) return;
+        msg.textContent = "";
+        const r = await rpc("staff_delete_mod", { p_password: staffPw, p_id: m.id });
+        if (r.ok) { await loadMods(); renderStaff(); }
+        else msg.textContent = staffError(r);
+      });
+
+      row.append(top, acts, form);
+      list.appendChild(row);
+    });
+  }
+
+  function staffReviewRows(list, msg, items, fn, label) {
+    if (!items.length) { list.appendChild(el("p", "empty", "No reviews yet.")); return; }
+    items.forEach(x => {
+      const row = el("div", "srow");
+      const top = el("div", "head");
+      top.append(el("strong", "", x.author), el("span", "rating", stars(x.rating)));
+      const where = label(x);
+      if (where) top.append(el("span", "when", where));
+      const db = el("button", "alt small danger", "Delete"); db.type = "button";
+      db.addEventListener("click", async () => {
+        if (!confirm("Delete this review by " + x.author + "?")) return;
+        msg.textContent = "";
+        const r = await rpc(fn, { p_password: staffPw, p_id: x.id });
+        if (r.ok) { await loadMods(); renderStaff(); }
+        else msg.textContent = staffError(r);
+      });
+      const acts = el("div", "actions");
+      acts.appendChild(db);
+      row.append(top, el("p", "", x.comment), acts);
+      list.appendChild(row);
+    });
+  }
+
+  function staffReviews(list, msg) {
+    staffReviewRows(list, msg, reviews, "staff_delete_review", x => {
+      const m = mods.find(y => y.id === x.mod_id);
+      return m ? "on " + m.name : "";
+    });
+  }
+
+  function staffSite(list, msg) {
+    staffReviewRows(list, msg, siteReviews, "staff_delete_site_review", () => "");
+  }
   if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) {
     const flow = $("pawFlow");
     if (flow) flow.remove();
