@@ -150,6 +150,25 @@
   .review .when { color: var(--muted); font-size: .8rem; }
   .review p { margin: 4px 0 0; color: var(--text); }
   .rform { padding: 0; border: 0; background: transparent; margin-top: 10px; gap: 8px; }
+  .small { padding: 4px 10px; font-size: .85rem; }
+  .paws { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; padding: 0 4px; }
+  .paws svg { width: 20px; height: 20px; fill: var(--accent); opacity: .85; }
+  .paws svg:nth-child(odd) { transform: rotate(-18deg); }
+  .paws svg:nth-child(even) { transform: translateY(-6px) rotate(18deg); }
+  .paws svg { animation: pawwalk 2.4s ease-in-out infinite; }
+  .paws svg:nth-child(2) { animation-delay: .4s; }
+  .paws svg:nth-child(3) { animation-delay: .8s; }
+  .paws svg:nth-child(4) { animation-delay: 1.2s; }
+  @keyframes pawwalk { 0%, 100% { opacity: .2; } 35% { opacity: 1; } 70% { opacity: .2; } }
+  .corner-paw {
+    position: fixed; right: 16px; bottom: 16px; width: 56px; height: 56px;
+    pointer-events: none; z-index: 50;
+    filter: drop-shadow(0 2px 5px rgba(242,103,159,.55));
+  }
+  .corner-paw svg { width: 100%; height: 100%; display: block; }
+  .corner-paw svg ellipse, .corner-paw svg circle { fill: url(#pawGrad); stroke: #fff; stroke-width: 0.6; stroke-linejoin: round; }
+  .corner-paw.spin { animation: pawspin .7s ease-in-out; }
+  @keyframes pawspin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .alt {
     background: #fff; color: var(--text); border: 1px solid var(--line);
@@ -184,7 +203,7 @@
     .ch { width: auto; white-space: nowrap; flex: none; }
     #q { width: 140px; }
   }
-  @media (prefers-reduced-motion: reduce) { .server-name, .main, .join, .side, .rail { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .server-name, .main, .join, .side, .rail, .paws svg, .corner-paw.spin { animation: none; } }
 </style>
 </head>
 <body>
@@ -243,6 +262,22 @@
   </main>
 </div>
 
+<div class="corner-paw" id="cornerPaw" aria-hidden="true">
+  <svg viewBox="0 0 24 24">
+    <defs>
+      <linearGradient id="pawGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0" spreadMethod="repeat">
+        <stop offset="0" stop-color="#fff7fb"/>
+        <stop offset=".25" stop-color="#ffb3d1"/>
+        <stop offset=".5" stop-color="#f2679f"/>
+        <stop offset=".75" stop-color="#ffb3d1"/>
+        <stop offset="1" stop-color="#fff7fb"/>
+        <animateTransform id="pawFlow" attributeName="gradientTransform" type="translate" from="0 0" to="24 0" dur="4s" repeatCount="indefinite"/>
+      </linearGradient>
+    </defs>
+    <ellipse cx="12" cy="16" rx="5.5" ry="4.5"/><circle cx="5.5" cy="10" r="2.2"/><circle cx="9.5" cy="5.8" r="2.2"/><circle cx="14.5" cy="5.8" r="2.2"/><circle cx="18.5" cy="10" r="2.2"/>
+  </svg>
+</div>
+
 <script>
   // Paste your Supabase Project URL and public (anon / publishable) key between the quotes.
   const SUPABASE_URL = "https://ejkqwpojnotbwlkrisvm.supabase.co";
@@ -261,6 +296,38 @@
   try { favs = new Set(JSON.parse(localStorage.getItem("meowware-favs") || "[]")); } catch (e) {}
   function saveFavs() {
     try { localStorage.setItem("meowware-favs", JSON.stringify([...favs])); } catch (e) {}
+  }
+
+  // Keys that let this browser edit the reviews it posted
+  let reviewTokens = {};
+  try { reviewTokens = JSON.parse(localStorage.getItem("meowware-review-tokens") || "{}") || {}; } catch (e) {}
+  function saveTokens() {
+    try { localStorage.setItem("meowware-review-tokens", JSON.stringify(reviewTokens)); } catch (e) {}
+  }
+  function newToken() {
+    const a = new Uint8Array(16);
+    crypto.getRandomValues(a);
+    return Array.from(a, b => b.toString(16).padStart(2, "0")).join("");
+  }
+  function makeRatingSelect(selected) {
+    const sel = document.createElement("select");
+    sel.setAttribute("aria-label", "Rating");
+    [5, 4, 3, 2, 1].forEach(n => {
+      const o = document.createElement("option");
+      o.value = String(n);
+      o.textContent = "\u2605".repeat(n) + "\u2606".repeat(5 - n) + "  (" + n + ")";
+      if (n === selected) o.selected = true;
+      sel.appendChild(o);
+    });
+    return sel;
+  }
+  function makePaws() {
+    const box = document.createElement("span");
+    box.className = "paws";
+    box.setAttribute("aria-hidden", "true");
+    const paw = '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="16" rx="5.5" ry="4.5"/><circle cx="5.5" cy="10" r="2.2"/><circle cx="9.5" cy="5.8" r="2.2"/><circle cx="14.5" cy="5.8" r="2.2"/><circle cx="18.5" cy="10" r="2.2"/></svg>';
+    box.innerHTML = paw.repeat(4);
+    return box;
   }
 
   // Mods are loaded from your Supabase database (see SUPABASE_URL above).
@@ -299,13 +366,36 @@
 
   async function postReview(modId, author, rating, comment) {
     if (!API || !SUPABASE_KEY) return "Not set up yet.";
+    const token = newToken();
     try {
       const r = await fetch(API + "/rest/v1/rpc/add_review", {
         method: "POST",
         headers: HEADERS,
-        body: JSON.stringify({ p_mod_id: modId, p_author: author.trim(), p_rating: rating, p_comment: comment.trim() })
+        body: JSON.stringify({
+          p_mod_id: modId, p_author: author.trim(), p_rating: rating,
+          p_comment: comment.trim(), p_token: token
+        })
       });
-      return r.ok ? "ok" : "Couldn't post your review. Try again.";
+      if (!r.ok) return "Couldn't post your review. Try again.";
+      try {
+        const id = await r.json();
+        if (typeof id === "string") { reviewTokens[id] = token; saveTokens(); }
+      } catch (x) {}
+      return "ok";
+    } catch (x) {
+      return "Couldn't reach the server.";
+    }
+  }
+
+  async function editReview(id, rating, comment) {
+    if (!API || !SUPABASE_KEY) return "Not set up yet.";
+    try {
+      const r = await fetch(API + "/rest/v1/rpc/edit_review", {
+        method: "POST",
+        headers: HEADERS,
+        body: JSON.stringify({ p_review_id: id, p_token: reviewTokens[id] || "", p_rating: rating, p_comment: comment.trim() })
+      });
+      return r.ok ? "ok" : "Couldn't save your changes. You can only edit reviews posted from this browser.";
     } catch (x) {
       return "Couldn't reach the server.";
     }
@@ -412,6 +502,8 @@
         body.append(box);
       }
 
+      actions.append(makePaws());
+
       if (m.id) {
         const rs = reviews.filter(x => x.mod_id === m.id);
         if (rs.length) {
@@ -453,6 +545,39 @@
           rh.append(au, st, wh);
           const cm = document.createElement("p"); cm.textContent = x.comment;
           item.append(rh, cm);
+
+          if (x.id && reviewTokens[x.id]) {
+            const eb = document.createElement("button");
+            eb.type = "button"; eb.className = "alt small"; eb.textContent = "Edit";
+            rh.append(eb);
+
+            const ef = document.createElement("form");
+            ef.className = "rform"; ef.hidden = true;
+            const esel = makeRatingSelect(x.rating);
+            const eta = document.createElement("textarea");
+            eta.rows = 3; eta.maxLength = 500; eta.required = true; eta.value = x.comment;
+            eta.setAttribute("aria-label", "Edit your review");
+            const esave = document.createElement("button");
+            esave.type = "submit"; esave.className = "alt"; esave.textContent = "Save changes";
+            const ecancel = document.createElement("button");
+            ecancel.type = "button"; ecancel.className = "alt"; ecancel.textContent = "Cancel";
+            const eerr = document.createElement("p");
+            eerr.className = "err"; eerr.setAttribute("role", "alert");
+            ef.append(esel, eta, esave, ecancel, eerr);
+            item.append(ef);
+
+            eb.addEventListener("click", () => { ef.hidden = !ef.hidden; if (!ef.hidden) eta.focus(); });
+            ecancel.addEventListener("click", () => { ef.hidden = true; });
+            ef.addEventListener("submit", async ev => {
+              ev.preventDefault();
+              eerr.textContent = "";
+              esave.disabled = true;
+              const res = await editReview(x.id, Number(esel.value), eta.value);
+              esave.disabled = false;
+              if (res === "ok") await loadMods();
+              else eerr.textContent = res;
+            });
+          }
           list.appendChild(item);
         });
 
@@ -462,14 +587,7 @@
         const nm = document.createElement("input");
         nm.type = "text"; nm.placeholder = "Your name"; nm.maxLength = 40; nm.required = true;
         nm.setAttribute("aria-label", "Your name");
-        const rate = document.createElement("select");
-        rate.setAttribute("aria-label", "Rating");
-        [5, 4, 3, 2, 1].forEach(n => {
-          const o = document.createElement("option");
-          o.value = String(n);
-          o.textContent = "\u2605".repeat(n) + "\u2606".repeat(5 - n) + "  (" + n + ")";
-          rate.appendChild(o);
-        });
+        const rate = makeRatingSelect(5);
         const cmt = document.createElement("textarea");
         cmt.rows = 3; cmt.placeholder = "Your review"; cmt.maxLength = 500; cmt.required = true;
         cmt.setAttribute("aria-label", "Your review");
@@ -589,12 +707,12 @@
       }));
       loadFailed = false;
       try {
-        const rr = await fetch(API + "/rest/v1/reviews?select=mod_id,author,rating,comment,created_at&order=created_at.desc", { headers: HEADERS });
+        const rr = await fetch(API + "/rest/v1/reviews?select=id,mod_id,author,rating,comment,created_at&order=created_at.desc", { headers: HEADERS });
         if (rr.ok) {
           const rd = await rr.json();
           reviews.length = 0;
           rd.forEach(x => reviews.push({
-            mod_id: String(x.mod_id), author: String(x.author),
+            id: String(x.id), mod_id: String(x.mod_id), author: String(x.author),
             rating: Number(x.rating), comment: String(x.comment), created_at: x.created_at
           }));
         }
@@ -642,6 +760,20 @@
       btn.disabled = false;
     }
   });
+
+  // Spin the corner paw every time a button is clicked
+  const cornerPaw = $("cornerPaw");
+  document.addEventListener("click", e => {
+    if (!e.target.closest("button, .dl, .join")) return;
+    cornerPaw.classList.remove("spin");
+    void cornerPaw.offsetWidth;
+    cornerPaw.classList.add("spin");
+  });
+  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const flow = $("pawFlow");
+    if (flow) flow.remove();
+  }
+  cornerPaw.addEventListener("animationend", () => cornerPaw.classList.remove("spin"));
 
   render();
   loadMods();
