@@ -127,6 +127,14 @@
     text-decoration: none; font-weight: 700; border-radius: 8px; padding: 8px 16px;
   }
   .dl[aria-disabled="true"] { background: var(--line); color: var(--muted); pointer-events: none; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .alt {
+    background: #fff; color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; font-weight: 700; cursor: pointer;
+  }
+  .alt:disabled { opacity: .6; cursor: default; }
+  .pwrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .pwrow input { width: auto; flex: 1 1 140px; max-width: 220px; }
   .empty { color: var(--muted); padding: 24px 0; margin: 0; }
 
   form { display: grid; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
@@ -219,6 +227,7 @@
   const HEADERS = { "apikey": SUPABASE_KEY, "Content-Type": "application/json" };
 
   let loadFailed = false;
+  let sessionPw = "";
 
   // Mods are loaded from your Supabase database (see SUPABASE_URL above).
   const mods = [];
@@ -251,6 +260,23 @@
     a.textContent = (name.trim()[0] || "?").toUpperCase();
     a.setAttribute("aria-hidden", "true");
     return a;
+  }
+
+  async function setWorking(id, working, password) {
+    if (!API || !SUPABASE_KEY) return "Not set up yet.";
+    try {
+      const r = await fetch(API + "/rest/v1/rpc/set_mod_working", {
+        method: "POST",
+        headers: HEADERS,
+        body: JSON.stringify({ p_password: password, p_id: id, p_working: working })
+      });
+      if (r.ok) return "ok";
+      let msg = "";
+      try { msg = (await r.json()).message || ""; } catch (x) {}
+      return msg.includes("wrong password") ? "Wrong password." : "Couldn't update. Try again.";
+    } catch (x) {
+      return "Couldn't reach the server.";
+    }
   }
 
   function renderMods(filter) {
@@ -296,7 +322,45 @@
       if (href) { a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer"; }
       else { a.setAttribute("aria-disabled", "true"); }
 
-      body.append(head, p, a);
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.append(a);
+      body.append(head, p, actions);
+
+      if (m.id) {
+        const t = document.createElement("button");
+        t.type = "button"; t.className = "alt";
+        t.textContent = m.working ? "Mark as not working" : "Mark as working";
+
+        const box = document.createElement("div");
+        box.className = "pwrow"; box.hidden = true;
+        const pw = document.createElement("input");
+        pw.type = "password"; pw.placeholder = "Password"; pw.autocomplete = "off";
+        pw.setAttribute("aria-label", "Password to change status");
+        const ok = document.createElement("button");
+        ok.type = "button"; ok.className = "alt"; ok.textContent = "Confirm";
+        const msg = document.createElement("span");
+        msg.className = "err"; msg.setAttribute("role", "alert");
+        box.append(pw, ok, msg);
+
+        const run = async password => {
+          t.disabled = ok.disabled = true;
+          msg.textContent = "";
+          const res = await setWorking(m.id, !m.working, password);
+          t.disabled = ok.disabled = false;
+          if (res === "ok") { sessionPw = password; await loadMods(); }
+          else { sessionPw = ""; box.hidden = false; msg.textContent = res; }
+        };
+        t.addEventListener("click", () => {
+          if (sessionPw) run(sessionPw);
+          else { box.hidden = !box.hidden; if (!box.hidden) pw.focus(); }
+        });
+        ok.addEventListener("click", () => run(pw.value));
+
+        actions.append(t);
+        body.append(box);
+      }
+
       card.append(avatar(m.name), body);
       feed.appendChild(card);
     });
@@ -357,12 +421,12 @@
   async function loadMods() {
     if (!API || !SUPABASE_KEY) return;
     try {
-      const r = await fetch(API + "/rest/v1/mods?select=name,working,description,link&order=created_at.desc", { headers: HEADERS });
+      const r = await fetch(API + "/rest/v1/mods?select=id,name,working,description,link&order=created_at.desc", { headers: HEADERS });
       if (!r.ok) throw new Error("bad response");
       const data = await r.json();
       mods.length = 0;
       data.forEach(m => mods.push({
-        name: String(m.name), working: !!m.working,
+        id: String(m.id), name: String(m.name), working: !!m.working,
         description: String(m.description), link: String(m.link)
       }));
       loadFailed = false;
