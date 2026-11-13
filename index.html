@@ -95,7 +95,10 @@
     box-shadow: 0 2px 8px rgba(242,103,159,.3);
   }
   .join:hover { box-shadow: 0 2px 12px rgba(242,103,159,.55); }
-  .join-side { margin: auto 12px 12px; }
+  .join-side { margin: auto 12px 8px; }
+  .staff-btn { font-size: .95rem; }
+  .staff-side { margin: 0 12px 12px; }
+  .staff-fab { display: none; position: fixed; left: 12px; bottom: 12px; z-index: 60; box-shadow: 0 2px 8px rgba(242,103,159,.3); }
   .join-top { display: none; margin-left: auto; padding: 6px 12px; font-size: .9rem; white-space: nowrap; }
 
   /* main */
@@ -171,7 +174,7 @@
   @keyframes pawwalk { 0%, 100% { opacity: .2; } 35% { opacity: 1; } 70% { opacity: .2; } }
   .corner-paw {
     position: fixed; right: 16px; bottom: 16px; width: 56px; height: 56px;
-    pointer-events: auto; z-index: 50; user-select: none; -webkit-tap-highlight-color: transparent;
+    pointer-events: none; z-index: 50;
     filter: drop-shadow(0 2px 5px rgba(242,103,159,.55));
   }
   .corner-paw svg { width: 100%; height: 100%; display: block; }
@@ -220,6 +223,8 @@
     .server { border-bottom: 0; }
     .server .mini { display: block; }
     .join-side { display: none; }
+    .staff-side { display: none; }
+    .staff-fab { display: block; }
     .join-top { display: block; }
     nav { display: flex; gap: 4px; overflow-x: auto; padding: 0 8px 8px; }
     .group { display: none; }
@@ -251,6 +256,7 @@
       <button class="ch" data-ch="credits">Credits</button>
     </nav>
     <a class="join join-side" href="https://discord.gg/DH7PyEdnzB" target="_blank" rel="noopener noreferrer">Join Discord</a>
+    <button type="button" class="alt staff-btn staff-side">Staff menu</button>
   </aside>
 
   <main class="main">
@@ -298,6 +304,8 @@
     </div>
   </main>
 </div>
+
+<button type="button" class="alt staff-btn staff-fab">Staff menu</button>
 
 <div class="overlay" id="staffOverlay" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="staffTitle">
@@ -885,16 +893,7 @@
     if (e.target.closest("button, .dl, .join")) spinPaw();
   });
 
-  // ---- Staff menu: click the corner paw 10 times ----
-  let pawClicks = 0, pawTimer = null;
-  cornerPaw.addEventListener("click", () => {
-    spinPaw();
-    pawClicks++;
-    clearTimeout(pawTimer);
-    pawTimer = setTimeout(() => { pawClicks = 0; }, 2500);
-    if (pawClicks >= 10) { pawClicks = 0; openStaff(); }
-  });
-
+  // ---- Staff menu ----
   let staffPw = "";
   let staffTab = "mods";
 
@@ -936,6 +935,7 @@
     $("staffOverlay").hidden = true;
     $("staffBody").textContent = "";
   }
+  document.querySelectorAll(".staff-btn").forEach(b => b.addEventListener("click", openStaff));
   $("staffClose").addEventListener("click", closeStaff);
   $("staffOverlay").addEventListener("click", e => { if (e.target === $("staffOverlay")) closeStaff(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("staffOverlay").hidden) closeStaff(); });
